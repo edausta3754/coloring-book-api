@@ -1,0 +1,5 @@
+{
+  "name": "Coloring Book Creator",
+  "description": "Generate personalized, printable coloring books for children on any theme. Provide a theme and a name, and the app creates a unique cover and five coloring pages, ready to be downloaded as a PDF. Also includes a helpful chat bot for any questions.",
+  "requestFramePermissions": []
+}
