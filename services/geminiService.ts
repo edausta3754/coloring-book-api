@@ -9,7 +9,7 @@ const apiKey = process.env.API_KEY || "test";
 const ai = new GoogleGenAI({ apiKey: apiKey });
 const textModel = 'gemini-1.5-flash'; 
 
-// Model: SDXL (Bu model, vereceğimiz detaylı promptu çok iyi anlar)
+// Model: SDXL (En güçlü model)
 const HF_MODEL_URL = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0";
 
 interface ColoringBookIdeas {
@@ -20,19 +20,14 @@ interface ColoringBookIdeas {
 const generateImageWithHF = async (prompt: string): Promise<string> => {
     if (!HF_KEY) throw new Error("Render ayarlarında HF_KEY tanımlanmamış!");
 
-    // --- ORİJİNAL "ALTIN" PROMPT ---
-    // Senin gönderdiğin kodun aynısını buraya yapıştırdım.
-    // Bu kurallar SDXL modelini "sadece çizgi" yapmaya zorlayacak.
-    const strictPrompt = `Generate a single coloring book page for a child. The style must be extremely consistent, professional, and of the highest quality for printing.
-        
-    **Style Mandates (Non-negotiable):**
-    - **Artwork Style:** Clean, simple, minimalist vector illustration.
-    - **Lines:** Solid, bold, thick, and perfectly uniform black outlines. There must be **zero variation** in line weight—no tapering, no pressure sensitivity, no thin lines. Every single line should look like it was made with the same digital pen setting.
-    - **Color:** Strictly black and white. Absolutely **no color, grayscale, shading, or gradients**.
-    - **Complexity:** Simple shapes and large, easy-to-color areas. Avoid small, intricate details.
-    - **Theme:** The illustration should be joyful, charming, and easily understandable for a young child.
+    // --- TEMİZLİK OPERASYONU ---
+    
+    // 1. POZİTİF PROMPT (Ne istiyoruz?):
+    // "lineart" ve "monochrome" kelimeleri çok kritiktir.
+    const finalPrompt = `kids coloring book page, ${prompt}, centered, simple, cute, vector line art, black and white, thick lines, white background, 2d, minimalist`;
 
-    **Content for this page:** ${prompt}, white background`;
+    // 2. NEGATİF PROMPT (Ne İSTEMİYORUZ? - Burası gri tonları engeller):
+    const negativePrompt = "shading, grayscale, gradient, gray, shadows, color, 3d, realistic, photo, detailed background, textured, noise, blurry, messy, complex";
 
     const response = await fetch(HF_MODEL_URL, {
         headers: { 
@@ -40,7 +35,14 @@ const generateImageWithHF = async (prompt: string): Promise<string> => {
             "Content-Type": "application/json" 
         },
         method: "POST",
-        body: JSON.stringify({ inputs: strictPrompt }),
+        body: JSON.stringify({ 
+            inputs: finalPrompt,
+            parameters: {
+                negative_prompt: negativePrompt, // İşte sihir burada!
+                num_inference_steps: 25, // Kaliteyi artırır
+                guidance_scale: 8.0 // Prompt'a ne kadar sadık kalacağını belirler
+            }
+        }),
     });
 
     if (!response.ok) {
@@ -60,12 +62,10 @@ export const generateColoringPages = async (theme: string, name: string): Promis
 
     // --- METİN ÜRETİMİ ---
     try {
-        // 6 Fikir istiyoruz
+        // Google'dan çok çok basit, tek kelimelik objeler istiyoruz
         const ideaPrompt = `Create a coloring book for a child named ${name}. Theme: "${theme}". 
-        Generate 6 simple and cute scene ideas.
-        RULES:
-        1. Keep descriptions focused on visual elements.
-        2. Avoid complex backgrounds.
+        Generate 6 VERY SIMPLE scene ideas.
+        IMPORTANT: Describe only the main object. Example: "A cute cat sitting".
         Return JSON.`;
         
         const ideaResponse = await ai.models.generateContent({
@@ -88,17 +88,17 @@ export const generateColoringPages = async (theme: string, name: string): Promis
             coverIdea: `Coloring book title page for ${name} about ${theme}`,
             pageIdeas: [
                 `Cute ${theme} character`,
-                `Simple ${theme} scene`,
-                `Funny ${theme} playing`,
-                `${theme} object`,
-                `Happy ${theme} friends`,
-                `Detailed ${theme} pattern`
+                `Simple ${theme} face`,
+                `${theme} full body`,
+                `Funny ${theme}`,
+                `Small ${theme}`,
+                `${theme} simple outline`
             ]
         };
     }
 
     // --- RESİM ÜRETİMİ ---
-    console.log(`[2/3] Çizimler yapılıyor (Orijinal Prompt Modu)...`);
+    console.log(`[2/3] Çizimler yapılıyor (Gölgesiz Mod)...`);
     
     const imagePrompts = [ideas.coverIdea, ...ideas.pageIdeas];
     const generatedImages: string[] = [];
@@ -112,7 +112,6 @@ export const generateColoringPages = async (theme: string, name: string): Promis
         } catch (err: any) {
             console.log("❌");
             try {
-                // Hata olursa tekrar dene
                 const image = await generateImageWithHF(prompt);
                 generatedImages.push(image);
                 console.log("     > Başarılı ✅");
