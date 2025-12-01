@@ -9,7 +9,7 @@ const apiKey = process.env.API_KEY || "test";
 const ai = new GoogleGenAI({ apiKey: apiKey });
 const textModel = 'gemini-1.5-flash'; 
 
-// Model: SDXL (Çizim için en iyisi)
+// Model: SDXL (Bu model, vereceğimiz detaylı promptu çok iyi anlar)
 const HF_MODEL_URL = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0";
 
 interface ColoringBookIdeas {
@@ -20,8 +20,19 @@ interface ColoringBookIdeas {
 const generateImageWithHF = async (prompt: string): Promise<string> => {
     if (!HF_KEY) throw new Error("Render ayarlarında HF_KEY tanımlanmamış!");
 
-    // --- SADE VE NET PROMPT ---
-    const simplePrompt = `coloring book page of ${prompt}, black and white, simple line art, white background, clean lines, no shading, kids drawing`;
+    // --- ORİJİNAL "ALTIN" PROMPT ---
+    // Senin gönderdiğin kodun aynısını buraya yapıştırdım.
+    // Bu kurallar SDXL modelini "sadece çizgi" yapmaya zorlayacak.
+    const strictPrompt = `Generate a single coloring book page for a child. The style must be extremely consistent, professional, and of the highest quality for printing.
+        
+    **Style Mandates (Non-negotiable):**
+    - **Artwork Style:** Clean, simple, minimalist vector illustration.
+    - **Lines:** Solid, bold, thick, and perfectly uniform black outlines. There must be **zero variation** in line weight—no tapering, no pressure sensitivity, no thin lines. Every single line should look like it was made with the same digital pen setting.
+    - **Color:** Strictly black and white. Absolutely **no color, grayscale, shading, or gradients**.
+    - **Complexity:** Simple shapes and large, easy-to-color areas. Avoid small, intricate details.
+    - **Theme:** The illustration should be joyful, charming, and easily understandable for a young child.
+
+    **Content for this page:** ${prompt}, white background`;
 
     const response = await fetch(HF_MODEL_URL, {
         headers: { 
@@ -29,7 +40,7 @@ const generateImageWithHF = async (prompt: string): Promise<string> => {
             "Content-Type": "application/json" 
         },
         method: "POST",
-        body: JSON.stringify({ inputs: simplePrompt }),
+        body: JSON.stringify({ inputs: strictPrompt }),
     });
 
     if (!response.ok) {
@@ -49,10 +60,12 @@ export const generateColoringPages = async (theme: string, name: string): Promis
 
     // --- METİN ÜRETİMİ ---
     try {
-        // GÜNCELLEME: 5 yerine 6 fikir istiyoruz
+        // 6 Fikir istiyoruz
         const ideaPrompt = `Create a coloring book for a child named ${name}. Theme: "${theme}". 
-        Generate 6 simple and cute scene ideas. 
-        Keep descriptions short and clear.
+        Generate 6 simple and cute scene ideas.
+        RULES:
+        1. Keep descriptions focused on visual elements.
+        2. Avoid complex backgrounds.
         Return JSON.`;
         
         const ideaResponse = await ai.models.generateContent({
@@ -70,8 +83,7 @@ export const generateColoringPages = async (theme: string, name: string): Promis
         ideas = JSON.parse(text) as ColoringBookIdeas;
 
     } catch (e) {
-        console.warn("   ! Google Yanıt Vermedi. Yedek Basit Fikirler.");
-        // GÜNCELLEME: B Planı için de 6. maddeyi ekledik
+        console.warn("   ! Google Yanıt Vermedi. Yedek Fikirler.");
         ideas = {
             coverIdea: `Coloring book title page for ${name} about ${theme}`,
             pageIdeas: [
@@ -80,13 +92,13 @@ export const generateColoringPages = async (theme: string, name: string): Promis
                 `Funny ${theme} playing`,
                 `${theme} object`,
                 `Happy ${theme} friends`,
-                `Detailed ${theme} pattern` // 6. Sayfa
+                `Detailed ${theme} pattern`
             ]
         };
     }
 
     // --- RESİM ÜRETİMİ ---
-    console.log(`[2/3] Çizimler yapılıyor (Toplam 7 Resim)...`);
+    console.log(`[2/3] Çizimler yapılıyor (Orijinal Prompt Modu)...`);
     
     const imagePrompts = [ideas.coverIdea, ...ideas.pageIdeas];
     const generatedImages: string[] = [];
@@ -105,7 +117,6 @@ export const generateColoringPages = async (theme: string, name: string): Promis
                 generatedImages.push(image);
                 console.log("     > Başarılı ✅");
             } catch (retryErr) {
-                 // Çizilemezse örnek resim
                  const fallback = await fetch("https://picsum.photos/800/600?grayscale").then(r => r.arrayBuffer());
                  generatedImages.push(Buffer.from(fallback).toString('base64'));
                  console.log("     ⚠️ (Hata)");
