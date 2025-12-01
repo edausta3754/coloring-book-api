@@ -4,12 +4,13 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const HF_KEY = process.env.HF_KEY;
+// API Key yoksa test modunda devam et
 const apiKey = process.env.API_KEY || "test";
 
 const ai = new GoogleGenAI({ apiKey: apiKey });
 const textModel = 'gemini-1.5-flash'; 
 
-// Hugging Face'in çalışan güncel adresi
+// Hugging Face FLUX Modeli
 const HF_MODEL_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell";
 
 interface ColoringBookIdeas {
@@ -17,17 +18,20 @@ interface ColoringBookIdeas {
     pageIdeas: string[];
 }
 
-// --- Yardımcı: Hugging Face ile Resim Çiz ---
 const generateImageWithHF = async (prompt: string): Promise<string> => {
     if (!HF_KEY) throw new Error("Hugging Face API Anahtarı eksik!");
 
-    // Prompt'u güçlendiriyoruz: İnsan yerine konsepte odaklansın
-    const enhancedPrompt = prompt + ", no humans, fantasy style, coloring book style";
+    // --- PROMPT MÜHENDİSLİĞİ (GÜNCELLENDİ) ---
+    // Buraya "Negatif Prompt" mantığını cümle içinde yediriyoruz.
+    // FLUX bazen negatif prompt desteklemez, o yüzden pozitifi güçlendiriyoruz.
+    const strictStyle = "kids coloring book page, heavy black outlines, stark white background, simple line art, vector style, no shading, no grayscale, monochrome, 2d, flat design, minimalist, cute, masterpiece. Subject: ";
+
+    const fullPrompt = strictStyle + prompt;
 
     const response = await fetch(HF_MODEL_URL, {
         headers: { Authorization: `Bearer ${HF_KEY}`, "Content-Type": "application/json" },
         method: "POST",
-        body: JSON.stringify({ inputs: enhancedPrompt }),
+        body: JSON.stringify({ inputs: fullPrompt }),
     });
 
     if (!response.ok) {
@@ -44,18 +48,18 @@ export const generateColoringPages = async (theme: string, name: string): Promis
     console.log(`[1/3] İşlem Başladı: ${theme}`);
     let ideas: ColoringBookIdeas;
 
-    // --- BÖLÜM 1: METİN ÜRETİMİ ---
+    // --- METİN ÜRETİMİ ---
     try {
-        console.log("   > Google'dan yaratıcı fikirler isteniyor...");
-        // Google'a özellikle "ÇEŞİTLİLİK" emri veriyoruz
+        console.log("   > Google'dan fikir isteniyor...");
         const ideaPrompt = `Create a coloring book for a child named ${name}. Theme: "${theme}". 
-        Generate 5 UNIQUE scene ideas. 
-        IMPORTANT RULES for diversity:
-        1. One page must be a LANDSCAPE/BACKGROUND scene (no characters).
-        2. One page must be an OBJECT or VEHICLE specific to the theme.
-        3. One page must be a funny ACTION scene.
-        4. Do not repeat the same character design.
-        Return JSON: { "coverIdea": "string", "pageIdeas": ["string", "string", "string", "string", "string"] }`;
+        Generate 5 UNIQUE scene ideas.
+        IMPORTANT: The descriptions must be for SIMPLE LINE ART. Focus on shapes, ignore lighting.
+        1. Landscape/Background (Simple)
+        2. Object/Vehicle (Iconic)
+        3. Character close-up (Cute)
+        4. Action scene (Clear)
+        5. Pattern/Items (Simple)
+        Return JSON.`;
         
         const ideaResponse = await ai.models.generateContent({
             model: textModel,
@@ -70,38 +74,25 @@ export const generateColoringPages = async (theme: string, name: string): Promis
         
         text = text.replace(/```json|```/g, '').trim();
         ideas = JSON.parse(text) as ColoringBookIdeas;
-        console.log("   > Google başarıyla fikir üretti! 🎉");
 
     } catch (e) {
-        console.warn("   ! Google Yanıt Vermedi. Gelişmiş B Planı Devrede. 🛡️");
-        
-        // --- GÜNCELLENMİŞ B PLANI (MANUEL ÇEŞİTLİLİK) ---
-        // Burada her satır farklı bir açıdan çizim istiyor.
+        console.warn("   ! B Planı Devrede.");
         ideas = {
-            coverIdea: `A big bold text title page with ${theme} elements and name ${name}`,
+            coverIdea: `Big title text ${theme} coloring book for ${name}, simple outlines`,
             pageIdeas: [
-                // 1. Manzara / Dünya
-                `A wide landscape view of the ${theme} world, scenery, background details, no humans`,
-                // 2. Ana Karakter (Yakın Çekim)
-                `A cute non-human ${theme} character close-up portrait, detailed face`,
-                // 3. Obje / Araç
-                `A vehicle, machine, or magical object related to ${theme}, full body view`,
-                // 4. Aksiyon
-                `Dynamic scene of ${theme} flying or moving fast, action lines`,
-                // 5. Desen / Topluluk
-                `A pattern of many small items related to ${theme}, floating items`
+                `Simple landscape of ${theme} world, thick lines`,
+                `Cute ${theme} character face, simple vector`,
+                `A single ${theme} object in the center, white background`,
+                `${theme} running fast, motion lines, simple`,
+                `Pattern of small ${theme} icons, minimalist`
             ]
         };
     }
 
-    // --- BÖLÜM 2: RESİM ÜRETİMİ ---
-    console.log(`[2/3] Çizimler yapılıyor (Çeşitlilik Modu)...`);
+    // --- RESİM ÜRETİMİ ---
+    console.log(`[2/3] Çizimler yapılıyor (Keskin Çizgi Modu)...`);
     
-    // Stil komutunu güncelledik: "No humans" (insan yok) uyarısı ekledik.
-    // Eğer tema insan gerektiriyorsa bu promptu yumuşatabiliriz ama robot/uzay için bu iyidir.
-    const stylePrefix = "coloring book page for kids, black and white, thick lines, white background, vector style. Subject: ";
-
-    const imagePrompts = [ideas.coverIdea, ...ideas.pageIdeas].map(idea => stylePrefix + idea);
+    const imagePrompts = [ideas.coverIdea, ...ideas.pageIdeas];
     const generatedImages: string[] = [];
     
     for (const [i, prompt] of imagePrompts.entries()) {
@@ -110,14 +101,13 @@ export const generateColoringPages = async (theme: string, name: string): Promis
             const image = await generateImageWithHF(prompt);
             generatedImages.push(image);
             console.log("✅");
-        } catch (err: any) {
+        } catch (err) {
             console.log("❌ (Tekrar deneniyor)");
             try {
                 const image = await generateImageWithHF(prompt);
                 generatedImages.push(image);
                 console.log("   > Başarılı ✅");
             } catch (retryErr) {
-                 // Son çare placeholder
                  const fallback = await fetch("https://picsum.photos/800/600?grayscale").then(r => r.arrayBuffer());
                  generatedImages.push(Buffer.from(fallback).toString('base64'));
                  console.log("⚠️ (Örnek resim)");
